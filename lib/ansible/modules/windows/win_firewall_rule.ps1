@@ -123,36 +123,53 @@ function New-FWRule
         [string]$secureFlags
     )
 
-    # INetFwRule interface description: https://msdn.microsoft.com/en-us/library/windows/desktop/aa365344(v=vs.85).aspx
-    $rule = New-Object -ComObject HNetCfg.FWRule
-    $rule.Name = $name
-    $rule.Enabled = $enabled
-    if ($description) { $rule.Description = $description }
-    if ($applicationName) { $rule.ApplicationName = $applicationName }
-    if ($serviceName) { $rule.ServiceName = $serviceName }
-    if ($protocol -and $protocol -ne "any") { $rule.Protocol = Parse-ProtocolType -protocol $protocol }
-    if ($localPorts -and $localPorts -ne "any") { $rule.LocalPorts = $localPorts }
-    if ($remotePorts -and $remotePorts -ne "any") { $rule.RemotePorts = $remotePorts }
-    if ($localAddresses -and $localAddresses -ne "any") { $rule.LocalAddresses = $localAddresses }
-    if ($remoteAddresses -and $remoteAddresses -ne "any") { $rule.RemoteAddresses = $remoteAddresses }
-    if ($direction) { $rule.Direction = Parse-Direction -directionStr $direction }
-    if ($action) { $rule.Action = Parse-Action -actionStr $action }
-    if ($profiles) { $rule.Profiles = Parse-Profiles -profilesList $profiles }
-    if ($interfaceTypes -and @(Compare-Object $interfaceTypes @("any")).Count -ne 0) { $rule.InterfaceTypes = Parse-InterfaceTypes -interfaceTypes $interfaceTypes }
+    try {
+        # INetFwRule interface description: https://msdn.microsoft.com/en-us/library/windows/desktop/aa365344(v=vs.85).aspx
+        $rule = New-Object -ComObject HNetCfg.FWRule
+    }
+    catch
+    {
+        throw "Can't create HNetCfg.FWRule COM object: $($_.Exception.Message)"
+    }
+
+    Set-FWRuleProperty -rule $rule -propertyName 'Name' -value $name
+    Set-FWRuleProperty -rule $rule -propertyName 'Enabled' -value $enabled
+    if ($description) { Set-FWRuleProperty -rule $rule -propertyName 'Description' -value $description }
+    if ($applicationName) { Set-FWRuleProperty -rule $rule -propertyName 'ApplicationName' -value $applicationName }
+    if ($serviceName) { Set-FWRuleProperty -rule $rule -propertyName 'ServiceName' -value $serviceName }
+    if ($protocol -and $protocol -ne "any") { Set-FWRuleProperty -rule $rule -propertyName 'Protocol' -value (Parse-ProtocolType -protocol $protocol) }
+    if ($localPorts -and $localPorts -ne "any") { Set-FWRuleProperty -rule $rule -propertyName 'LocalPorts' -value $localPorts }
+    if ($remotePorts -and $remotePorts -ne "any") { Set-FWRuleProperty -rule $rule -propertyName 'RemotePorts' -value $remotePorts }
+    if ($localAddresses -and $localAddresses -ne "any") { Set-FWRuleProperty -rule $rule -propertyName 'LocalAddresses' -value $localAddresses }
+    if ($remoteAddresses -and $remoteAddresses -ne "any") { Set-FWRuleProperty -rule $rule -propertyName 'RemoteAddresses' -value $remoteAddresses }
+    if ($direction) { Set-FWRuleProperty -rule $rule -propertyName 'Direction' -value (Parse-Direction -directionStr $direction) }
+    if ($action) { Set-FWRuleProperty -rule $rule -propertyName 'Action' -value (Parse-Action -actionStr $action) }
+    if ($profiles) { Set-FWRuleProperty -rule $rule -propertyName 'Profiles' -value (Parse-Profiles -profilesList $profiles) }
+    if ($interfaceTypes -and @(Compare-Object $interfaceTypes @("any")).Count -ne 0) { Set-FWRuleProperty -rule $rule -propertyName 'InterfaceTypes' -value (Parse-InterfaceTypes -interfaceTypes $interfaceTypes) }
     if ($edgeTraversalOptions -and $edgeTraversalOptions -ne "no") {
         # EdgeTraversalOptions property exists only from Windows 7/Windows Server 2008 R2: https://msdn.microsoft.com/en-us/library/windows/desktop/dd607256(v=vs.85).aspx
         if ($rule | Get-Member -Name 'EdgeTraversalOptions') {
-            $rule.EdgeTraversalOptions = Parse-EdgeTraversalOptions -edgeTraversalOptionsStr $edgeTraversalOptions
+            Set-FWRuleProperty -rule $rule -propertyName 'EdgeTraversalOptions' -value (Parse-EdgeTraversalOptions -edgeTraversalOptionsStr $edgeTraversalOptions)
         }
     }
     if ($secureFlags -and $secureFlags -ne "notrequired") {
         # SecureFlags property exists only from Windows 8/Windows Server 2012: https://msdn.microsoft.com/en-us/library/windows/desktop/hh447465(v=vs.85).aspx
         if ($rule | Get-Member -Name 'SecureFlags') {
-            $rule.SecureFlags = Parse-SecureFlags -secureFlagsStr $secureFlags
+            Set-FWRuleProperty -rule $rule -propertyName 'SecureFlags' -value (Parse-SecureFlags -secureFlagsStr $secureFlags)
         }
     }
 
     return $rule
+}
+
+function Set-FWRuleProperty($rule, $propertyName, $value)
+{
+    try {
+        $rule.$propertyName = $value
+    }
+    catch {
+        throw "Can't set FWRule property '$propertyName' to value '$value': $($_.Exception.Message)"
+    }
 }
 
 $ErrorActionPreference = "Stop"
@@ -195,7 +212,12 @@ if ($diff_support) {
 }
 
 try {
-    $fw = New-Object -ComObject HNetCfg.FwPolicy2
+    try {
+        $fw = New-Object -ComObject HNetCfg.FwPolicy2
+    }
+    catch {
+        throw "Can't create HNetCfg.FwPolicy2 COM object: $($_.Exception.Message)"
+    }
 
     $existingRule = $fw.Rules | Where { $_.Name -eq $name }
 
@@ -233,7 +255,12 @@ try {
             }
 
             if (-not $check_mode) {
-                $fw.Rules.Remove($existingRule.Name)
+                try {
+                    $fw.Rules.Remove($existingRule.Name)
+                }
+                catch {
+                    throw "Can't remove rule '$name': $($_.Exception.Message)"
+                }
             }
             $result.changed = $true
             $result.msg = "Firewall rule '$name' removed."
@@ -247,7 +274,12 @@ try {
             }
 
             if (-not $check_mode) {
-                $fw.Rules.Add($rule)
+                try {
+                    $fw.Rules.Add($rule)
+                }
+                catch {
+                    throw "Can't add rule '$name': $($_.Exception.Message)"
+                }
             }
             $result.changed = $true
             $result.msg = "Firewall rule '$name' created."
